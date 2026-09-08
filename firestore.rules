@@ -1,0 +1,183 @@
+rules_version = '2';
+
+// Vows.ng — Firestore security rules
+//
+// The governing rule: a wedding page is PUBLIC. Anyone with the link can read
+// weddings/{slug}. Everything private therefore lives in a subcollection that
+// is never publicly readable. Client-side hiding is decoration; this file is
+// the actual boundary.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- helpers ----------
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function wedding(slug) {
+      return get(/databases/$(database)/documents/weddings/$(slug)).data;
+    }
+
+    function isOwner(slug) {
+      return signedIn() && wedding(slug).ownerUid == request.auth.uid;
+    }
+
+    function roleDoc(slug) {
+      return get(/databases/$(database)/documents/weddings/$(slug)/roles/$(request.auth.uid));
+    }
+
+    // A role only counts while it is switched ON. The couple disabling a helper
+    // must revoke access immediately, so read `enabled` — never mere existence.
+    function roleName(slug) {
+      return (signedIn() && roleDoc(slug) != null && roleDoc(slug).data.enabled == true)
+        ? roleDoc(slug).data.role
+        : "";
+    }
+
+    function hasRole(slug, allowed) {
+      return isOwner(slug) || (roleName(slug) in allowed);
+    }
+
+    // Helpers who may see the guest list but never the money.
+    function guestListReader(slug) {
+      return hasRole(slug, ["bridesmaid", "mother", "planner"]);
+    }
+
+    // ---------- the public wedding document ----------
+
+    match /weddings/{slug} {
+      allow read: if true;
+
+      // Creating a wedding: you must stamp yourself as the owner, or you could
+      // create a wedding owned by someone else and never be able to edit it —
+      // or worse, claim a slug you do not control.
+      allow create: if signedIn()
+                    && request.resource.data.ownerUid == request.auth.uid;
+
+      // ownerUid is immutable. Without this, an owner could hand a wedding to
+      // an attacker, or an attacker with any write path could seize one.
+      allow update: if isOwner(slug)
+                    && request.resource.data.ownerUid == resource.data.ownerUid;
+
+      allow delete: if isOwner(slug);
+
+      // ---------- guests: the couple's entire contact book ----------
+
+      match /guests/{guestId} {
+        allow read: if guestListReader(slug);
+        allow write: if isOwner(slug);
+      }
+
+      // ---------- RSVP drop box ----------
+      //
+      // A guest must submit an RSVP without signing in, but must never read the
+      // guest list. Firestore cannot grant a write to a document you cannot
+      // read, so the guest writes HERE and a Cloud Function validates the code
+      // and seat count, merges it into the guest document, and deletes the drop.
+      //
+      // Create only: no read (would leak who is attending), no update (would let
+      // one guest overwrite another's response), no delete.
+
+      match /rsvps/{code} {
+        allow create: if request.resource.data.keys().hasOnly(
+                           ["code", "responses", "note", "submittedAt"])
+                      && request.resource.data.code is string
+                      && request.resource.data.code.size() == 6
+                      && request.resource.data.responses is map
+                      && request.resource.data.responses.size() <= 8;
+        allow read, update, delete: if false;
+      }
+
+      // ---------- gifts: owner only ----------
+      //
+      // Helper roles are deliberately excluded. The mother of the bride can run
+      // the guest list without seeing what every guest gave.
+
+      match /gifts/{giftId} {
+        allow read: if isOwner(slug);
+
+        // A guest claims a gift they have already transferred, with a receipt.
+        // The amount is unverified until the couple confirms it, which is why
+        // it never touches the registry total directly.
+        allow create: if request.resource.data.keys().hasOnly(
+                           ["giver", "code", "amount", "item", "receiptPath", "createdAt"])
+                      && request.resource.data.amount is number
+                      && request.resource.data.amount > 0
+                      && request.resource.data.receiptPath is string;
+
+        allow update, delete: if isOwner(slug);
+      }
+
+      // ---------- registry: public progress, function-written totals ----------
+      //
+      // `received` is written by a Cloud Function after the couple confirms a
+      // gift. If a client could increment it, anyone could inflate it.
+
+      match /registry/{itemId} {
+        allow read: if true;
+        allow create, delete: if isOwner(slug);
+        allow update: if isOwner(slug)
+                      && request.resource.data.received == resource.data.received;
+      }
+
+      // ---------- vendors: money, so owner and planner only ----------
+
+      match /vendors/{vendorId} {
+        allow read: if hasRole(slug, ["planner"]);
+        allow write: if isOwner(slug);
+      }
+
+      // ---------- aso-ebi ----------
+
+      match /asoebi/{personId} {
+        allow read: if guestListReader(slug);
+        allow write: if isOwner(slug);
+      }
+
+      // ---------- guest photos ----------
+      //
+      // Anyone may upload; only approved photos are readable. Approval is the
+      // couple's, and an uploader cannot self-approve.
+
+      match /photos/{photoId} {
+        allow read: if resource.data.approved == true || isOwner(slug);
+        allow create: if request.resource.data.approved == false
+                      && request.resource.data.keys().hasOnly(
+                           ["storagePath", "uploader", "caption", "approved", "createdAt"]);
+        allow update, delete: if isOwner(slug);
+      }
+
+      // ---------- roles ----------
+      //
+      // Owner-only in both directions. A helper must not be able to read the
+      // list of roles, discover another PIN, or promote themselves.
+
+      match /roles/{uid} {
+        allow read, write: if isOwner(slug);
+      }
+    }
+
+    // ---------- waitlist ----------
+    //
+    // Write-only drop box for the landing page. Nobody reads it from the client;
+    // you read signups in the console or with the Admin SDK.
+
+    match /signups/{id} {
+      allow create: if request.resource.data.keys().hasOnly(
+                         ["names", "phone", "weddingDate", "city",
+                          "guestBand", "source", "createdAt"])
+                    && request.resource.data.names is string
+                    && request.resource.data.names.size() < 120
+                    && request.resource.data.phone is string
+                    && request.resource.data.phone.size() < 20;
+      allow read, update, delete: if false;
+    }
+
+    // Anything not matched above is denied.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

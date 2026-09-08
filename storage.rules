@@ -1,0 +1,61 @@
+rules_version = '2';
+
+// Vows.ng — Storage rules
+//
+// Two buckets' worth of content with opposite visibility, deliberately kept in
+// separate paths. Transfer receipts carry a guest's name and bank details and
+// are the most sensitive files in the product. Guest photos are meant to be
+// seen. Never merge these paths — one leaked prefix would expose both.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(slug) {
+      return signedIn()
+        && firestore.get(/databases/(default)/documents/weddings/$(slug)).data.ownerUid
+           == request.auth.uid;
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    // ---------- transfer receipts: write by anyone, read by the couple ----------
+
+    match /weddings/{slug}/receipts/{fileName} {
+      allow read: if isOwner(slug);
+      allow create: if (isImage() || request.resource.contentType == 'application/pdf')
+                    && request.resource.size < 5 * 1024 * 1024;
+      allow update, delete: if isOwner(slug);
+    }
+
+    // ---------- guest photos: public once approved in Firestore ----------
+    //
+    // The file itself is readable; the photo document controls whether it is
+    // ever surfaced. Keep originals — the whole point is that guest photos
+    // survive at full quality instead of dying compressed in a group chat.
+
+    match /weddings/{slug}/photos/{fileName} {
+      allow read: if true;
+      allow create: if isImage() && request.resource.size < 15 * 1024 * 1024;
+      allow update, delete: if isOwner(slug);
+    }
+
+    // ---------- couple's own imagery (story, gallery) ----------
+
+    match /weddings/{slug}/gallery/{fileName} {
+      allow read: if true;
+      allow write: if isOwner(slug)
+                   && isImage()
+                   && request.resource.size < 15 * 1024 * 1024;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
