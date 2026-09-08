@@ -121,6 +121,29 @@ input[type=color]{padding:4px;block-size:46px;cursor:pointer}
   text-decoration:underline;padding:0;font-size:12.5px}
 .or{display:flex;align-items:center;gap:12px;margin-block:20px;color:var(--muted);font-size:12px}
 .or::before,.or::after{content:"";block-size:1px;flex:1;background:var(--line)}
+.gstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px}
+.gstat{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px;
+  text-align:center}
+.gstat b{display:block;font-size:23px;font-family:Georgia,serif;color:var(--accent);
+  font-variant-numeric:tabular-nums}
+.gstat small{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.gsearch{margin-block:18px 10px}
+.grow{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;
+  border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-block-end:8px;
+  background:var(--surface)}
+.grow .nm{font-weight:600;font-size:14.5px}
+.grow .dt{font-size:12.5px;color:var(--muted);margin-block-start:2px}
+.gcode{font-family:Georgia,serif;font-size:18px;letter-spacing:.14em;color:var(--accent);
+  cursor:pointer;background:none;border:0;padding:0;font-weight:700}
+.gacts{display:flex;gap:6px;align-items:center}
+.iconbtn{background:none;border:1px solid var(--line);border-radius:9px;cursor:pointer;
+  padding:6px 10px;font-size:12px;font-weight:700;color:var(--muted)}
+.iconbtn:hover{border-color:var(--accent);color:var(--accent)}
+.iconbtn.wa{background:#25D366;border-color:#25D366;color:#0b3d1f}
+.pillr{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;
+  background:var(--bg);color:var(--muted);border:1px solid var(--line)}
+.pillr.yes{background:color-mix(in srgb,var(--c1) 30%,var(--surface));color:var(--accent);
+  border-color:var(--c1)}
 .center{text-align:center}
 .pad{padding-block:44px}
 </style>
@@ -184,6 +207,9 @@ input[type=color]{padding:4px;block-size:46px;cursor:pointer}
         Continue with Google
       </button>
       <p class="hint">Either way is free. We never post anything anywhere.</p>
+      <p class="hint" style="margin-block-start:12px">By creating an account you agree to our
+        <a href="/terms.html" target="_blank" rel="noopener">Terms of Use</a> and
+        <a href="/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.</p>
     </div>
   </div>
 
@@ -218,7 +244,8 @@ input[type=color]{padding:4px;block-size:46px;cursor:pointer}
       <div class="stp" data-s="2">2 · Look</div>
       <div class="stp" data-s="3">3 · Ceremonies</div>
       <div class="stp" data-s="4">4 · Gifts</div>
-      <div class="stp" data-s="5">5 · Publish</div>
+      <div class="stp" data-s="5">5 · Guests</div>
+      <div class="stp" data-s="6">6 · Publish</div>
     </div>
 
     <div class="card" data-p="1">
@@ -275,6 +302,39 @@ input[type=color]{padding:4px;block-size:46px;cursor:pointer}
     </div>
 
     <div class="card" data-p="5">
+      <h2>Your guests</h2>
+      <p class="mut">Each guest gets a random six-character code for their invitation card. It admits exactly the seats you allow, and it is how they RSVP, find their table, and get through the gate.</p>
+      <p class="hint">These details belong to your guests. Use them only for your wedding, and
+        remove anyone who asks. See our <a href="/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.</p>
+
+      <div class="gstats" id="gstats"></div>
+
+      <div class="two" style="margin-block-start:16px">
+        <div class="field"><label for="g-name">Name on the invitation</label>
+          <input id="g-name" type="text" placeholder="Mr &amp; Mrs Adebayo Ogunlesi"></div>
+        <div class="field"><label for="g-seats">Seats</label>
+          <input id="g-seats" type="number" min="1" max="20" value="2"></div>
+      </div>
+      <div class="two">
+        <div class="field"><label for="g-phone">WhatsApp number (optional)</label>
+          <input id="g-phone" type="tel" placeholder="0803 000 0000"></div>
+        <div class="field"><label for="g-side">Side</label>
+          <select id="g-side"><option>Bride</option><option>Groom</option><option>Both</option></select></div>
+      </div>
+      <div class="field"><label for="g-table">Table (optional)</label>
+        <input id="g-table" type="text" placeholder="Ilamare"></div>
+      <button class="btn" id="g-add" type="button">Add guest</button>
+      <p class="err" id="g-err" hidden></p>
+
+      <div class="gsearch" id="gsearch" hidden>
+        <input id="g-find" type="search" placeholder="Search your guests…">
+      </div>
+      <div id="glist"></div>
+      <button class="btn ghost sm" id="g-export" type="button" hidden
+        style="margin-block-start:12px">Download the code list</button>
+    </div>
+
+    <div class="card" data-p="6">
       <h2>Publish</h2>
       <p class="mut">Publishing makes your page visible to anyone with the link. Until then only you can see it.</p>
       <div class="live">
@@ -316,8 +376,8 @@ import {
   createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where,
-  getDocs, limit, serverTimestamp
+  getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where,
+  getDocs, limit, orderBy, serverTimestamp, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const app  = initializeApp(firebaseConfig);
@@ -491,6 +551,7 @@ async function loadMine(){
     data = snap.docs[0].data();
     fillForm();
     show("v-setup");
+    loadGuests();
   } catch (e) {
     console.error(e);
     toast("Could not load your page");
@@ -727,6 +788,287 @@ $("s-unpublish").addEventListener("click", async () => {
   await updateDoc(doc(db, "weddings", slug), { published: false });
   pubState(); toast("Page hidden");
 });
+
+
+/* ============================================================================
+   GUESTS
+   Each guest is two documents that must stay in step:
+     guests/{id}  — private: name, phone, seats, table, responses
+     codes/{CODE} — public:  ONLY what that guest may see about themselves
+   They are written in one batch so a code can never point at nothing.
+   ========================================================================= */
+
+/* Codes are read by anyone holding the six characters, so they must be
+   unguessable. Sequential codes (ABC001, ABC002) would expose the whole guest
+   list in an afternoon. This alphabet also drops 0/O/1/I/5/S — a guest reading
+   a printed card should never have to guess which character they are seeing. */
+const CODE_ALPHABET = "ABCDEFGHJKLMNPQRTUVWXY2346789";
+function makeCode(){
+  const a = new Uint32Array(6);
+  crypto.getRandomValues(a);
+  let out = "";
+  for (let i = 0; i < 6; i++) out += CODE_ALPHABET[a[i] % CODE_ALPHABET.length];
+  return out;
+}
+
+let guests = [];
+
+async function loadGuests(){
+  if (!slug) return;
+  try {
+    const snap = await getDocs(collection(db, "weddings", slug, "guests"));
+    guests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    guests.sort((a,b) => (a.name || "").localeCompare(b.name || ""));
+    renderGuests();
+    await mergeRsvps();
+  } catch (e) {
+    console.error(e);
+    toast("Could not load your guest list");
+  }
+}
+
+function guestStats(){
+  const total = guests.length;
+  const seats = guests.reduce((n,g) => n + (g.seats || 1), 0);
+  const replied = guests.filter(g => g.responses).length;
+  const coming = guests.reduce((n,g) => {
+    if (!g.responses) return n;
+    return n + Math.max(0, ...Object.values(g.responses).map(v => Number(v) || 0));
+  }, 0);
+  return { total, seats, replied, coming };
+}
+
+function renderGuests(){
+  const st = guestStats();
+  $("gstats").innerHTML = "";
+  [["Guests", st.total], ["Seats invited", st.seats],
+   ["Responded", st.replied], ["Coming", st.coming]].forEach(([label, val]) => {
+    const d = document.createElement("div"); d.className = "gstat";
+    const b = document.createElement("b"); b.textContent = val;
+    const s = document.createElement("small"); s.textContent = label;
+    d.append(b, s); $("gstats").appendChild(d);
+  });
+
+  $("gsearch").hidden = guests.length < 8;
+  $("g-export").hidden = guests.length === 0;
+
+  const term = ($("g-find").value || "").toLowerCase();
+  const list = term
+    ? guests.filter(g => (g.name || "").toLowerCase().includes(term) ||
+                         (g.code || "").toLowerCase().includes(term))
+    : guests;
+
+  const host = $("glist");
+  host.innerHTML = "";
+  if (!guests.length){
+    const p = document.createElement("p"); p.className = "mut";
+    p.style.marginBlockStart = "16px";
+    p.textContent = "No guests yet. Add your first above.";
+    host.appendChild(p);
+    return;
+  }
+  list.forEach(g => {
+    const row = document.createElement("div"); row.className = "grow";
+    const left = document.createElement("div");
+    const nm = document.createElement("div"); nm.className = "nm"; nm.textContent = g.name;
+    const dt = document.createElement("div"); dt.className = "dt";
+    dt.textContent = [
+      (g.seats || 1) + ((g.seats || 1) === 1 ? " seat" : " seats"),
+      g.side, g.table ? "Table " + g.table : null
+    ].filter(Boolean).join(" \u00b7 ");
+    const code = document.createElement("button");
+    code.type = "button"; code.className = "gcode"; code.textContent = g.code;
+    code.title = "Copy this code";
+    code.addEventListener("click", () => {
+      try { navigator.clipboard?.writeText(g.code); } catch (e) {}
+      toast("Copied " + g.code);
+    });
+    const status = document.createElement("span");
+    status.className = "pillr" + (g.responses ? " yes" : "");
+    status.textContent = g.responses ? "Responded" : "Awaiting";
+    const meta = document.createElement("div");
+    meta.style.cssText = "display:flex;gap:8px;align-items:center;margin-block-start:6px;flex-wrap:wrap";
+    meta.append(code, status);
+    left.append(nm, dt, meta);
+
+    const acts = document.createElement("div"); acts.className = "gacts";
+    if (g.phone){
+      const wa = document.createElement("button");
+      wa.type = "button"; wa.className = "iconbtn wa"; wa.textContent = "WhatsApp";
+      wa.addEventListener("click", () => {
+        const url = location.origin + "/" + slug;
+        const msg = "Dear " + g.name + ",\n\n" +
+          (data.names?.partner || "") + " & " + (data.names?.you || "") +
+          " are getting married, and you are invited.\n\n" +
+          "Your invitation code is " + g.code + " — it admits " + (g.seats || 1) +
+          ((g.seats || 1) === 1 ? " guest" : " guests") + ".\n\n" +
+          "See everything and RSVP here: " + url;
+        window.open("https://wa.me/" + normalisePhone(g.phone) +
+          "?text=" + encodeURIComponent(msg), "_blank", "noopener");
+      });
+      acts.appendChild(wa);
+    }
+    const del = document.createElement("button");
+    del.type = "button"; del.className = "iconbtn"; del.textContent = "Remove";
+    del.addEventListener("click", () => removeGuest(g));
+    acts.appendChild(del);
+
+    row.append(left, acts);
+    host.appendChild(row);
+  });
+}
+
+/* wa.me needs an international number with no punctuation; Nigerian numbers are
+   almost always typed as 0803... locally */
+function normalisePhone(p){
+  let d = String(p || "").replace(/\D/g, "");
+  if (d.startsWith("0")) d = "234" + d.slice(1);
+  else if (d.startsWith("234")) { /* already international */ }
+  else if (d.length === 10) d = "234" + d;
+  return d;
+}
+
+async function addGuest(){
+  $("g-err").hidden = true;
+  const name = $("g-name").value.trim();
+  const seats = Math.max(1, Math.min(20, parseInt($("g-seats").value, 10) || 1));
+  if (name.length < 2){
+    $("g-err").hidden = false;
+    $("g-err").textContent = "Please enter a name for the invitation.";
+    $("g-name").focus();
+    return;
+  }
+  const btn = $("g-add");
+  btn.disabled = true; btn.textContent = "Adding…";
+
+  /* retry on the vanishingly rare collision rather than silently overwriting
+     a guest who already holds that code */
+  let code = null;
+  for (let attempt = 0; attempt < 5 && !code; attempt++){
+    const candidate = makeCode();
+    const existing = await getDoc(doc(db, "weddings", slug, "codes", candidate));
+    if (!existing.exists()) code = candidate;
+  }
+  if (!code){
+    btn.disabled = false; btn.textContent = "Add guest";
+    $("g-err").hidden = false;
+    $("g-err").textContent = "Could not generate a code. Please try again.";
+    return;
+  }
+
+  const g = {
+    name,
+    code,
+    seats,
+    phone: $("g-phone").value.trim(),
+    side: $("g-side").value,
+    table: $("g-table").value.trim(),
+    invited: [],
+    createdAt: serverTimestamp()
+  };
+  try {
+    const batch = writeBatch(db);
+    const gref = doc(collection(db, "weddings", slug, "guests"));
+    batch.set(gref, g);
+    /* the public half carries ONLY what this guest may see about themselves */
+    batch.set(doc(db, "weddings", slug, "codes", code), {
+      name, seats, table: g.table, tableName: g.table, invited: []
+    });
+    await batch.commit();
+    guests.push({ id: gref.id, ...g });
+    guests.sort((a,b) => (a.name || "").localeCompare(b.name || ""));
+    renderGuests();
+    $("g-name").value = ""; $("g-phone").value = ""; $("g-table").value = "";
+    $("g-name").focus();
+    toast(name + " added — code " + code);
+  } catch (e){
+    console.error(e);
+    $("g-err").hidden = false;
+    $("g-err").textContent = "Could not add that guest. Please try again.";
+  } finally {
+    btn.disabled = false; btn.textContent = "Add guest";
+  }
+}
+
+async function removeGuest(g){
+  if (!confirm("Remove " + g.name + "? Their invitation code will stop working.")) return;
+  try {
+    const batch = writeBatch(db);
+    batch.delete(doc(db, "weddings", slug, "guests", g.id));
+    batch.delete(doc(db, "weddings", slug, "codes", g.code));
+    await batch.commit();
+    guests = guests.filter(x => x.id !== g.id);
+    renderGuests();
+    toast(g.name + " removed");
+  } catch (e){
+    console.error(e);
+    toast("Could not remove that guest");
+  }
+}
+
+$("g-add").addEventListener("click", addGuest);
+$("g-name").addEventListener("keydown", (e) => { if (e.key === "Enter") addGuest(); });
+$("g-find").addEventListener("input", renderGuests);
+
+/* the printer needs a plain list, so give the couple a CSV they can hand over */
+$("g-export").addEventListener("click", () => {
+  const rows = [["Name","Code","Seats","Side","Table","Phone"]];
+  guests.forEach(g => rows.push([
+    g.name || "", g.code || "", g.seats || 1, g.side || "", g.table || "", g.phone || ""
+  ]));
+  const csv = rows.map(r => r.map(v =>
+    '"' + String(v).replace(/"/g, '""') + '"').join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = slug + "-invitation-codes.csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast("Code list downloaded");
+});
+
+
+/* ----------------------------------------------------------------------------
+   MERGE INCOMING RSVPS
+   Guests write to the rsvps drop box because they cannot touch the guest list.
+   The couple's own app collects those and folds them into the guest records,
+   which is why this product needs no Cloud Function and no billing account.
+   Runs whenever the couple opens their page.
+   ------------------------------------------------------------------------- */
+async function mergeRsvps(){
+  if (!slug) return 0;
+  let merged = 0;
+  try {
+    const drops = await getDocs(collection(db, "weddings", slug, "rsvps"));
+    if (drops.empty) return 0;
+
+    for (const d of drops.docs){
+      const r = d.data();
+      const g = guests.find(x => x.code === r.code);
+      /* a drop with no matching guest means the code was deleted after the
+         guest replied — discard it rather than leaving it to pile up */
+      if (!g){ await deleteDoc(d.ref); continue; }
+
+      await updateDoc(doc(db, "weddings", slug, "guests", g.id), {
+        responses: r.responses || {},
+        note: r.note || "",
+        respondedAt: r.submittedAt || serverTimestamp()
+      });
+      g.responses = r.responses || {};
+      g.note = r.note || "";
+      await deleteDoc(d.ref);
+      merged++;
+    }
+  } catch (e){
+    console.error(e);
+    return 0;
+  }
+  if (merged){
+    renderGuests();
+    toast(merged + (merged === 1 ? " new response" : " new responses"));
+  }
+  return merged;
+}
 
 /* leaving with unsaved edits is the one way a couple loses work here */
 let dirty = false;

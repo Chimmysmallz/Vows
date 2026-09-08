@@ -70,24 +70,52 @@ service cloud.firestore {
         allow write: if isOwner(slug);
       }
 
+      // ---------- invitation code lookup ----------
+      //
+      // A guest is not signed in and must never read the guest list, but does
+      // need to check their own code. So each code gets a tiny public document
+      // holding ONLY what the guest may see: their name, seat count, which
+      // ceremonies they are invited to, and their table. No phone number, no
+      // other guests, nothing about gifts.
+      //
+      // `get` and `list` are deliberately split. `get` needs the exact six
+      // characters, which the guest has on their card. `list` would hand over
+      // the whole collection at once, so it stays denied — that difference is
+      // the entire protection here.
+      //
+      // Codes must therefore be RANDOM, never sequential. Six characters from a
+      // 32-symbol alphabet is about a billion combinations; ABC001, ABC002 is
+      // guessable in an afternoon.
+
+      match /codes/{code} {
+        allow get: if true;
+        allow list: if false;
+        allow write: if isOwner(slug);
+      }
+
       // ---------- RSVP drop box ----------
       //
-      // A guest must submit an RSVP without signing in, but must never read the
-      // guest list. Firestore cannot grant a write to a document you cannot
-      // read, so the guest writes HERE and a Cloud Function validates the code
-      // and seat count, merges it into the guest document, and deletes the drop.
+      // Firestore cannot grant a write to a document you cannot read, so the
+      // guest writes HERE, keyed by their code, and the responses are merged
+      // into the guest record afterwards.
       //
-      // Create only: no read (would leak who is attending), no update (would let
-      // one guest overwrite another's response), no delete.
+      // The OWNER may read and delete: that is what lets the couple's own app
+      // do the merge, with no Cloud Function and therefore no billing account.
+      // A guest still cannot read this — it would leak who is attending —
+      // and cannot delete anyone's response, including their own.
+      //
+      // Update is allowed on create-or-update so a guest who changes their mind
+      // corrects their own response instead of creating a duplicate.
 
       match /rsvps/{code} {
-        allow create: if request.resource.data.keys().hasOnly(
-                           ["code", "responses", "note", "submittedAt"])
-                      && request.resource.data.code is string
-                      && request.resource.data.code.size() == 6
-                      && request.resource.data.responses is map
-                      && request.resource.data.responses.size() <= 8;
-        allow read, update, delete: if false;
+        allow create, update: if request.resource.data.keys().hasOnly(
+                                   ["code", "responses", "note", "submittedAt"])
+                              && request.resource.data.code == code
+                              && code.size() == 6
+                              && request.resource.data.responses is map
+                              && request.resource.data.responses.size() <= 8
+                              && request.resource.data.note.size() <= 500;
+        allow read, delete: if isOwner(slug);
       }
 
       // ---------- gifts: owner only ----------
@@ -105,7 +133,10 @@ service cloud.firestore {
                            ["giver", "code", "amount", "item", "receiptPath", "createdAt"])
                       && request.resource.data.amount is number
                       && request.resource.data.amount > 0
-                      && request.resource.data.receiptPath is string;
+                      && request.resource.data.amount < 100000000
+                      && request.resource.data.giver is string
+                      && request.resource.data.giver.size() > 0
+                      && request.resource.data.giver.size() < 120;
 
         allow update, delete: if isOwner(slug);
       }
@@ -159,10 +190,11 @@ service cloud.firestore {
       }
     }
 
-    // ---------- waitlist ----------
+    // ---------- waitlist (retired) ----------
     //
-    // Write-only drop box for the landing page. Nobody reads it from the client;
-    // you read signups in the console or with the Admin SDK.
+    // Couples now create their own wedding, so nothing writes here any more.
+    // The rule stays create-only so an old cached page cannot fail loudly, and
+    // reads stay denied so the addresses collected earlier are never exposed.
 
     match /signups/{id} {
       allow create: if request.resource.data.keys().hasOnly(
