@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "staging": "vows-staging-72f1d",
+    "prod": "vows-prod"
+  },
+  "targets": {},
+  "etags": {}
+}
