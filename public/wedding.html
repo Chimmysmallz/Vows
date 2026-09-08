@@ -180,6 +180,15 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-
 .mates{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-block-start:12px}
 .chip{font-size:11.5px;background:var(--surface);border:1px solid var(--line);border-radius:999px;
   padding:4px 11px}
+.reg{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:18px;box-shadow:var(--shadow);text-align:start}
+.reg .ic{font-size:26px;display:block;margin-block-end:8px}
+.reg h3{font-size:16px}
+.reg p{margin:6px 0 0;font-size:13px;color:var(--muted)}
+.regbar{block-size:7px;border-radius:99px;background:var(--line);overflow:hidden;
+  margin-block-start:10px}
+.regbar i{display:block;block-size:100%;
+  background:linear-gradient(90deg,var(--c1),var(--c2));transition:inline-size .9s cubic-bezier(.2,.9,.3,1)}
 footer{border-block-start:1px solid var(--line);margin-block-start:60px;padding-block:28px 44px;
   font-size:12.5px;color:var(--muted);text-align:center}
 footer a{color:var(--accent);font-weight:700}
@@ -271,6 +280,45 @@ footer a{color:var(--accent);font-weight:700}
       <p class="story reveal" id="story"></p>
     </div>
 
+    <div id="sec-join" hidden>
+      <div class="rule reveal"><h2>Ask for your invitation</h2></div>
+      <p class="sub reveal">Add your name and the couple will send you your invitation code.</p>
+      <div class="card reveal" style="max-inline-size:620px;margin-inline:auto">
+        <div id="j1">
+          <div class="field"><label for="j-name">Your name</label>
+            <input id="j-name" type="text" placeholder="Aunty Folasade Coker"></div>
+          <div class="field"><label for="j-phone">WhatsApp number</label>
+            <input id="j-phone" type="tel" placeholder="0803 000 0000"></div>
+          <div class="field"><label for="j-seats">How many of you are coming?</label>
+            <select id="j-seats">
+              <option value="1">Just me</option>
+              <option value="2">Me and one other</option>
+              <option value="3">Three of us</option>
+              <option value="4">Four of us</option>
+              <option value="5">Five of us</option>
+              <option value="6">Six or more</option>
+            </select></div>
+          <div class="field"><label for="j-side">Whom do you know?</label>
+            <select id="j-side">
+              <option>Bride</option><option>Groom</option><option>Both</option>
+            </select></div>
+          <div class="field"><label for="j-note">A note for the couple (optional)</label>
+            <textarea id="j-note" rows="2" placeholder="Ngozi and I were at university together."></textarea></div>
+          <button class="btn big" id="j-send" type="button">Send my request</button>
+          <p class="err" id="j-err" hidden></p>
+          <p class="hint" id="j-expect">The couple will review this and send your code. Seats
+            are limited, so please only ask for the number actually coming.</p>
+        </div>
+        <div id="j2" hidden style="text-align:center">
+          <div style="font-size:40px">&#128172;</div>
+          <h3 style="color:var(--accent)">Your request has been sent</h3>
+          <p class="mut" style="font-size:14.5px">The couple will send your invitation code on
+            WhatsApp once they have confirmed the seating. Thank you for asking rather than
+            just turning up.</p>
+        </div>
+      </div>
+    </div>
+
     <div class="rule reveal"><h2>Kindly respond</h2></div>
     <div class="card reveal" style="max-inline-size:620px;margin-inline:auto">
       <div id="r1">
@@ -318,6 +366,7 @@ footer a{color:var(--accent);font-weight:700}
       <div class="rule reveal"><h2>Gifts</h2></div>
       <p class="sub reveal">Your presence is the gift. But if you insist — a transfer, and we will know it was you.</p>
       <div class="sec-art reveal" data-art="detail-gifts"></div>
+      <div class="grid g4 reveal" id="registry" style="margin-block-end:18px"></div>
       <div class="card reveal" style="max-inline-size:620px;margin-inline:auto">
         <div class="acct">
           <div class="arow"><span>Account name</span><b id="ac-name"></b></div>
@@ -336,6 +385,8 @@ footer a{color:var(--accent);font-weight:700}
           <input id="g-from" type="text" placeholder="Aunty Folasade"></div>
         <div class="field"><label for="g-code">Invitation code (optional)</label>
           <input id="g-code" type="text" maxlength="6" placeholder="ABC123" autocomplete="off"></div>
+        <div class="field" id="g-item-wrap" hidden><label for="g-item">Towards</label>
+          <select id="g-item"></select></div>
         <button class="btn big" id="g-send" type="button">Record my gift</button>
         <p class="err" id="gerr" hidden></p>
         <p class="hint" id="gok" hidden></p>
@@ -347,7 +398,6 @@ footer a{color:var(--accent);font-weight:700}
 <footer id="foot" hidden>
   <p id="foot-names"></p>
   <p>Made with <a href="/">Vows.ng</a> — free for your wedding too.</p>
-  <p><a href="/privacy.html">Privacy</a> &middot; <a href="/terms.html">Terms</a></p>
 </footer>
 
 <script type="module">
@@ -625,11 +675,17 @@ function render(){
     $("story").textContent = W.story;
   }
 
-  if (W.gift && W.gift.number){
+  if ((W.gift && W.gift.number) || (W.registry || []).length){
     $("sec-gift").hidden = false;
-    $("ac-name").textContent = W.gift.name || both;
-    $("ac-bank").textContent = W.gift.bank || "";
-    $("ac-no").textContent = W.gift.number;
+    renderRegistry();
+    if (W.gift && W.gift.number){
+      $("ac-name").textContent = W.gift.name || both;
+      $("ac-bank").textContent = W.gift.bank || "";
+      $("ac-no").textContent = W.gift.number;
+    } else {
+      document.querySelector(".acct").hidden = true;
+      document.querySelector(".steps").hidden = true;
+    }
   }
 
   document.querySelectorAll("[data-art]").forEach(el => {
@@ -639,6 +695,7 @@ function render(){
   $("v-load").hidden = true;
   $("v-site").hidden = false;
   $("foot").hidden = false;
+  showJoin();
   startCountdown();
   observeReveals();
 }
@@ -781,6 +838,54 @@ $("send").addEventListener("click", async () => {
   }
 });
 
+
+/* ---------- request an invitation ----------
+   Reached via ?join on the couple's link. A request is not an invitation: it
+   creates no code and grants no seat until the couple approves it. */
+function showJoin(){
+  if (!W.acceptingRequests) return;
+  $("sec-join").hidden = false;
+  if (W.approvalMode === "auto"){
+    $("j-expect").textContent = "Your code is sent as soon as you ask. Please only request " +
+      "the number actually coming — seats are limited.";
+  }
+  if (new URLSearchParams(location.search).has("join")){
+    setTimeout(() => $("sec-join").scrollIntoView({ behavior: reduce ? "auto" : "smooth" }), 400);
+  }
+}
+$("j-send").addEventListener("click", async () => {
+  $("j-err").hidden = true;
+  const name = $("j-name").value.trim();
+  const phone = $("j-phone").value.trim();
+  const seats = parseInt($("j-seats").value, 10) || 1;
+  if (name.length < 2){
+    $("j-err").hidden = false; $("j-err").textContent = "Please enter your name.";
+    return;
+  }
+  if (phone.replace(/\D/g, "").length < 10){
+    $("j-err").hidden = false;
+    $("j-err").textContent = "The couple needs a number to send your code to.";
+    return;
+  }
+  const btn = $("j-send");
+  btn.disabled = true; btn.textContent = "Sending…";
+  try {
+    await addDoc(collection(db, "weddings", slug, "requests"), {
+      name, phone, seats,
+      side: $("j-side").value,
+      note: $("j-note").value.slice(0, 300),
+      createdAt: serverTimestamp()
+    });
+    $("j1").hidden = true; $("j2").hidden = false;
+    confetti(40);
+  } catch (e){
+    console.error(e);
+    btn.disabled = false; btn.textContent = "Send my request";
+    $("j-err").hidden = false;
+    $("j-err").textContent = "Could not send that. Please try again.";
+  }
+});
+
 /* ---------- find my table ---------- */
 $("tcode").addEventListener("input", function(){
   this.value = this.value.toUpperCase(); $("terr").hidden = true;
@@ -812,6 +917,50 @@ $("tfind").addEventListener("click", async () => {
   sparkle(window.innerWidth/2, out.getBoundingClientRect().top + 40, 12);
 });
 
+
+/* ---------- gift list ---------- */
+function renderRegistry(){
+  const list = (W.registry || []).filter(r => r && r.name);
+  const host = $("registry");
+  const sel = $("g-item");
+  if (!list.length){ host.hidden = true; return; }
+  host.hidden = false;
+  host.innerHTML = "";
+  sel.innerHTML = "";
+  const any = document.createElement("option");
+  any.value = ""; any.textContent = "Wherever it is needed most";
+  sel.appendChild(any);
+
+  list.forEach(item => {
+    const c = document.createElement("div"); c.className = "reg";
+    const ic = document.createElement("span"); ic.className = "ic";
+    ic.textContent = item.ico || "\u{1F381}";
+    const h = document.createElement("h3"); h.textContent = item.name;
+    c.append(ic, h);
+    if (item.note){
+      const n = document.createElement("p"); n.textContent = item.note;
+      c.appendChild(n);
+    }
+    if (item.target){
+      const got = Number(item.received) || 0;
+      const pc = Math.min(100, Math.round(got / item.target * 100));
+      const bar = document.createElement("div"); bar.className = "regbar";
+      const fill = document.createElement("i");
+      bar.appendChild(fill);
+      const lab = document.createElement("p");
+      lab.textContent = naira(got) + " of " + naira(item.target) + " \u00b7 " + pc + "%";
+      c.append(bar, lab);
+      setTimeout(() => { fill.style.inlineSize = pc + "%"; }, 80);
+    }
+    host.appendChild(c);
+
+    const o = document.createElement("option");
+    o.value = item.name; o.textContent = item.name;
+    sel.appendChild(o);
+  });
+  $("g-item-wrap").hidden = false;
+}
+
 /* ---------- gifts ---------- */
 $("ac-copy").addEventListener("click", (e) => {
   try { navigator.clipboard?.writeText(W.gift.number); } catch (err) {}
@@ -838,7 +987,7 @@ $("g-send").addEventListener("click", async () => {
       giver: from,
       code: $("g-code").value.trim().toUpperCase(),
       amount: amt,
-      item: "",
+      item: $("g-item").value || "",
       receiptPath: "",
       createdAt: serverTimestamp()
     });

@@ -93,6 +93,40 @@ service cloud.firestore {
         allow write: if isOwner(slug);
       }
 
+      // ---------- invitation requests ----------
+      //
+      // A shared link is the only workable way to collect a few hundred guests,
+      // but an open link is also how a hall fills with people nobody invited.
+      // So a request grants NOTHING: no code, no seat, no read access. The
+      // couple approves it, and only then is a guest record and code created.
+      //
+      // Requests are accepted only while the couple has the link switched on,
+      // checked here rather than in the page, so switching it off actually
+      // stops writes instead of merely hiding a form.
+
+      // The couple may run this in one of two modes, and the difference is only
+      // in WHEN a request becomes a guest, never in what a request can do. Auto
+      // approval still creates the guest from the couple's own signed-in app,
+      // so nothing here grants a stranger a seat by itself.
+
+      match /requests/{id} {
+        allow create: if wedding(slug).acceptingRequests == true
+                      && wedding(slug).published == true
+                      && request.resource.data.keys().hasOnly(
+                           ["name", "phone", "seats", "side", "note", "createdAt"])
+                      && request.resource.data.name is string
+                      && request.resource.data.name.size() > 1
+                      && request.resource.data.name.size() < 120
+                      && request.resource.data.phone is string
+                      && request.resource.data.phone.size() < 20
+                      && request.resource.data.seats is int
+                      && request.resource.data.seats > 0
+                      && request.resource.data.seats <= 20
+                      && request.resource.data.note.size() <= 300;
+        // never readable by a guest: it would expose everyone else who asked
+        allow read, update, delete: if isOwner(slug);
+      }
+
       // ---------- RSVP drop box ----------
       //
       // Firestore cannot grant a write to a document you cannot read, so the
