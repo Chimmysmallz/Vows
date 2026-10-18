@@ -3,3 +3,21 @@ node_modules/
 *.log
 .env
 .DS_Store
+
+
+# Local credentials and secrets
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+!.env.example
+!.dev.vars.example
+**/service-account*.json
+**/*firebase-adminsdk*.json
+*.pem
+*.key
+
+# Local development state
+node_modules/
+.wrangler/
+.firebase/

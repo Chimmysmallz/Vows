@@ -1,0 +1,23 @@
+name = "vows-free-photos"
+main = "index.mjs"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+# Keep your account on Workers FREE. No paid CPU setting, R2, Images or Durable Objects.
+[vars]
+FRONTEND_ORIGIN = "https://YOUR_FIREBASE_PROJECT.web.app"
+BACKEND_URL = "https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev"
+FIREBASE_PROJECT_ID = "YOUR_FIREBASE_PROJECT"
+FIREBASE_API_KEY = "REPLACE_WITH_NONSECRET_FIREBASE_WEB_API_KEY"
+GOOGLE_CLIENT_ID = "REPLACE_WITH_GOOGLE_OAUTH_WEB_CLIENT_ID"
+PICKER_KEY = "REPLACE_WITH_BROWSER_RESTRICTED_PICKER_API_KEY"
+GOOGLE_PROJECT_NUMBER = "REPLACE_WITH_GOOGLE_PROJECT_NUMBER"
+[[d1_databases]]
+binding = "DB"
+database_name = "vows-free-photos"
+database_id = "REPLACE_WITH_D1_DATABASE_UUID"
+migrations_dir = "migrations"
+[triggers]
+crons = ["*/10 * * * *"]
+# Required via wrangler secret put: DRIVE_KEY (base64 32 random bytes), GOOGLE_CLIENT_SECRET.
+# Never commit these values, a .dev.vars file or a real .env.

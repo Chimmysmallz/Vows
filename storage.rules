@@ -1,61 +1,26 @@
 rules_version = '2';
-
-// Vows.ng — Storage rules
-//
-// Two buckets' worth of content with opposite visibility, deliberately kept in
-// separate paths. Transfer receipts carry a guest's name and bank details and
-// are the most sensitive files in the product. Guest photos are meant to be
-// seen. Never merge these paths — one leaked prefix would expose both.
-
 service firebase.storage {
-  match /b/{bucket}/o {
-
-    function signedIn() {
-      return request.auth != null;
-    }
-
-    function isOwner(slug) {
-      return signedIn()
-        && firestore.get(/databases/(default)/documents/weddings/$(slug)).data.ownerUid
-           == request.auth.uid;
-    }
-
-    function isImage() {
-      return request.resource.contentType.matches('image/.*');
-    }
-
-    // ---------- transfer receipts: write by anyone, read by the couple ----------
-
-    match /weddings/{slug}/receipts/{fileName} {
-      allow read: if isOwner(slug);
-      allow create: if (isImage() || request.resource.contentType == 'application/pdf')
-                    && request.resource.size < 5 * 1024 * 1024;
-      allow update, delete: if isOwner(slug);
-    }
-
-    // ---------- guest photos: public once approved in Firestore ----------
-    //
-    // The file itself is readable; the photo document controls whether it is
-    // ever surfaced. Keep originals — the whole point is that guest photos
-    // survive at full quality instead of dying compressed in a group chat.
-
-    match /weddings/{slug}/photos/{fileName} {
-      allow read: if true;
-      allow create: if isImage() && request.resource.size < 15 * 1024 * 1024;
-      allow update, delete: if isOwner(slug);
-    }
-
-    // ---------- couple's own imagery (story, gallery) ----------
-
-    match /weddings/{slug}/gallery/{fileName} {
-      allow read: if true;
-      allow write: if isOwner(slug)
-                   && isImage()
-                   && request.resource.size < 15 * 1024 * 1024;
-    }
-
-    match /{allPaths=**} {
-      allow read, write: if false;
-    }
+ match /b/{bucket}/o {
+  function owner(s) { return request.auth != null && firestore.get(/databases/(default)/documents/weddings/$(s)).data.ownerUid == request.auth.uid; }
+  function published(s) { return firestore.get(/databases/(default)/documents/weddings/$(s)).data.published == true; }
+  match /weddings/{s}/receipts/{file} {
+   allow read, delete: if owner(s);
+   allow create, update: if false;
   }
+  // Legacy images only. Uploads stay disabled for this no-billing build.
+  // Public photo metadata ID MUST match the Storage filename exactly.
+  match /weddings/{s}/photos/{file} {
+   allow read: if owner(s) || (published(s)
+    && firestore.get(/databases/(default)/documents/weddings/$(s)/photos/$(file)).data.approved == true
+    && firestore.get(/databases/(default)/documents/weddings/$(s)/photos/$(file)).data.storagePath == 'weddings/' + s + '/photos/' + file);
+   allow delete: if owner(s);
+   allow create, update: if false;
+  }
+  match /weddings/{s}/gallery/{file} {
+   allow read: if owner(s) || published(s);
+   allow delete: if owner(s);
+   allow create, update: if false;
+  }
+  match /{all=**} { allow read, write: if false; }
+ }
 }

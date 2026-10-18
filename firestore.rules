@@ -1,249 +1,275 @@
 rules_version = '2';
-
-// Vows.ng — Firestore security rules
-//
-// The governing rule: a wedding page is PUBLIC. Anyone with the link can read
-// weddings/{slug}. Everything private therefore lives in a subcollection that
-// is never publicly readable. Client-side hiding is decoration; this file is
-// the actual boundary.
-
 service cloud.firestore {
-  match /databases/{database}/documents {
-
-    // ---------- helpers ----------
-
-    function signedIn() {
-      return request.auth != null;
-    }
-
-    function wedding(slug) {
-      return get(/databases/$(database)/documents/weddings/$(slug)).data;
-    }
-
-    function isOwner(slug) {
-      return signedIn() && wedding(slug).ownerUid == request.auth.uid;
-    }
-
-    function roleDoc(slug) {
-      return get(/databases/$(database)/documents/weddings/$(slug)/roles/$(request.auth.uid));
-    }
-
-    // A role only counts while it is switched ON. The couple disabling a helper
-    // must revoke access immediately, so read `enabled` — never mere existence.
-    function roleName(slug) {
-      return (signedIn() && roleDoc(slug) != null && roleDoc(slug).data.enabled == true)
-        ? roleDoc(slug).data.role
-        : "";
-    }
-
-    function hasRole(slug, allowed) {
-      return isOwner(slug) || (roleName(slug) in allowed);
-    }
-
-    // Helpers who may see the guest list but never the money.
-    function guestListReader(slug) {
-      return hasRole(slug, ["bridesmaid", "mother", "planner"]);
-    }
-
-    // ---------- the public wedding document ----------
-
-    match /weddings/{slug} {
-      allow read: if true;
-
-      // Creating a wedding: you must stamp yourself as the owner, or you could
-      // create a wedding owned by someone else and never be able to edit it —
-      // or worse, claim a slug you do not control.
-      allow create: if signedIn()
-                    && request.resource.data.ownerUid == request.auth.uid;
-
-      // ownerUid is immutable. Without this, an owner could hand a wedding to
-      // an attacker, or an attacker with any write path could seize one.
-      allow update: if isOwner(slug)
-                    && request.resource.data.ownerUid == resource.data.ownerUid;
-
-      allow delete: if isOwner(slug);
-
-      // ---------- guests: the couple's entire contact book ----------
-
-      match /guests/{guestId} {
-        allow read: if guestListReader(slug);
-        allow write: if isOwner(slug);
-      }
-
-      // ---------- invitation code lookup ----------
-      //
-      // A guest is not signed in and must never read the guest list, but does
-      // need to check their own code. So each code gets a tiny public document
-      // holding ONLY what the guest may see: their name, seat count, which
-      // ceremonies they are invited to, and their table. No phone number, no
-      // other guests, nothing about gifts.
-      //
-      // `get` and `list` are deliberately split. `get` needs the exact six
-      // characters, which the guest has on their card. `list` would hand over
-      // the whole collection at once, so it stays denied — that difference is
-      // the entire protection here.
-      //
-      // Codes must therefore be RANDOM, never sequential. Six characters from a
-      // 32-symbol alphabet is about a billion combinations; ABC001, ABC002 is
-      // guessable in an afternoon.
-
-      match /codes/{code} {
-        allow get: if true;
-        allow list: if false;
-        allow write: if isOwner(slug);
-      }
-
-      // ---------- invitation requests ----------
-      //
-      // A shared link is the only workable way to collect a few hundred guests,
-      // but an open link is also how a hall fills with people nobody invited.
-      // So a request grants NOTHING: no code, no seat, no read access. The
-      // couple approves it, and only then is a guest record and code created.
-      //
-      // Requests are accepted only while the couple has the link switched on,
-      // checked here rather than in the page, so switching it off actually
-      // stops writes instead of merely hiding a form.
-
-      // The couple may run this in one of two modes, and the difference is only
-      // in WHEN a request becomes a guest, never in what a request can do. Auto
-      // approval still creates the guest from the couple's own signed-in app,
-      // so nothing here grants a stranger a seat by itself.
-
-      match /requests/{id} {
-        allow create: if wedding(slug).acceptingRequests == true
-                      && wedding(slug).published == true
-                      && request.resource.data.keys().hasOnly(
-                           ["name", "phone", "seats", "side", "note", "createdAt"])
-                      && request.resource.data.name is string
-                      && request.resource.data.name.size() > 1
-                      && request.resource.data.name.size() < 120
-                      && request.resource.data.phone is string
-                      && request.resource.data.phone.size() < 20
-                      && request.resource.data.seats is int
-                      && request.resource.data.seats > 0
-                      && request.resource.data.seats <= 20
-                      && request.resource.data.note.size() <= 300;
-        // never readable by a guest: it would expose everyone else who asked
-        allow read, update, delete: if isOwner(slug);
-      }
-
-      // ---------- RSVP drop box ----------
-      //
-      // Firestore cannot grant a write to a document you cannot read, so the
-      // guest writes HERE, keyed by their code, and the responses are merged
-      // into the guest record afterwards.
-      //
-      // The OWNER may read and delete: that is what lets the couple's own app
-      // do the merge, with no Cloud Function and therefore no billing account.
-      // A guest still cannot read this — it would leak who is attending —
-      // and cannot delete anyone's response, including their own.
-      //
-      // Update is allowed on create-or-update so a guest who changes their mind
-      // corrects their own response instead of creating a duplicate.
-
-      match /rsvps/{code} {
-        allow create, update: if request.resource.data.keys().hasOnly(
-                                   ["code", "responses", "note", "submittedAt"])
-                              && request.resource.data.code == code
-                              && code.size() == 6
-                              && request.resource.data.responses is map
-                              && request.resource.data.responses.size() <= 8
-                              && request.resource.data.note.size() <= 500;
-        allow read, delete: if isOwner(slug);
-      }
-
-      // ---------- gifts: owner only ----------
-      //
-      // Helper roles are deliberately excluded. The mother of the bride can run
-      // the guest list without seeing what every guest gave.
-
-      match /gifts/{giftId} {
-        allow read: if isOwner(slug);
-
-        // A guest claims a gift they have already transferred, with a receipt.
-        // The amount is unverified until the couple confirms it, which is why
-        // it never touches the registry total directly.
-        allow create: if request.resource.data.keys().hasOnly(
-                           ["giver", "code", "amount", "item", "receiptPath", "createdAt"])
-                      && request.resource.data.amount is number
-                      && request.resource.data.amount > 0
-                      && request.resource.data.amount < 100000000
-                      && request.resource.data.giver is string
-                      && request.resource.data.giver.size() > 0
-                      && request.resource.data.giver.size() < 120;
-
-        allow update, delete: if isOwner(slug);
-      }
-
-      // ---------- registry: public progress, function-written totals ----------
-      //
-      // `received` is written by a Cloud Function after the couple confirms a
-      // gift. If a client could increment it, anyone could inflate it.
-
-      match /registry/{itemId} {
-        allow read: if true;
-        allow create, delete: if isOwner(slug);
-        allow update: if isOwner(slug)
-                      && request.resource.data.received == resource.data.received;
-      }
-
-      // ---------- vendors: money, so owner and planner only ----------
-
-      match /vendors/{vendorId} {
-        allow read: if hasRole(slug, ["planner"]);
-        allow write: if isOwner(slug);
-      }
-
-      // ---------- aso-ebi ----------
-
-      match /asoebi/{personId} {
-        allow read: if guestListReader(slug);
-        allow write: if isOwner(slug);
-      }
-
-      // ---------- guest photos ----------
-      //
-      // Anyone may upload; only approved photos are readable. Approval is the
-      // couple's, and an uploader cannot self-approve.
-
-      match /photos/{photoId} {
-        allow read: if resource.data.approved == true || isOwner(slug);
-        allow create: if request.resource.data.approved == false
-                      && request.resource.data.keys().hasOnly(
-                           ["storagePath", "uploader", "caption", "approved", "createdAt"]);
-        allow update, delete: if isOwner(slug);
-      }
-
-      // ---------- roles ----------
-      //
-      // Owner-only in both directions. A helper must not be able to read the
-      // list of roles, discover another PIN, or promote themselves.
-
-      match /roles/{uid} {
-        allow read, write: if isOwner(slug);
-      }
-    }
-
-    // ---------- waitlist (retired) ----------
-    //
-    // Couples now create their own wedding, so nothing writes here any more.
-    // The rule stays create-only so an old cached page cannot fail loudly, and
-    // reads stay denied so the addresses collected earlier are never exposed.
-
+ match /databases/{database}/documents {
+  function signedIn() { return request.auth != null; }
+  function wedding(s) { return get(/databases/$(database)/documents/weddings/$(s)).data; }
+  function publicRegistrySafe(d) { return (!("registry" in d)) || (d.registry is list && d.registry.size() <= 10 && (d.registry.size() <= 0 || (d.registry[0] is map && d.registry[0].keys().hasOnly(['name','note','target','ico']))) && (d.registry.size() <= 1 || (d.registry[1] is map && d.registry[1].keys().hasOnly(['name','note','target','ico']))) && (d.registry.size() <= 2 || (d.registry[2] is map && d.registry[2].keys().hasOnly(['name','note','target','ico']))) && (d.registry.size() <= 3 || (d.registry[3] is map && d.registry[3].keys().hasOnly(['name','note','target','ico']))) && (d.registry.size() <= 4 || (d.registry[4] is map && d.registry[4].keys().hasOnly(['name','note','target','ico']))) && (d.registry.size() <= 5 || (d.registry[5] is map && d.registry[5].keys().hasOnly(['name','note','target','ico']))) && (d.registry.size() <= 6 || (d.registry[6] is map && d.registry[6].keys().hasOnly(['name','note','target','ico']))) && (d.registry.size() <= 7 || (d.registry[7] is map && d.registry[7].keys().hasOnly(['name','note','target','ico']))) && (d.registry.size() <= 8 || (d.registry[8] is map && d.registry[8].keys().hasOnly(['name','note','target','ico']))) && (d.registry.size() <= 9 || (d.registry[9] is map && d.registry[9].keys().hasOnly(['name','note','target','ico'])))); }
+  function published(s) { return wedding(s).published == true && publicRegistrySafe(wedding(s)); }
+  function isOwner(s) { return signedIn() && wedding(s).ownerUid == request.auth.uid; }
+  function roleName(s) {
+   let p = /databases/$(database)/documents/weddings/$(s)/roles/$(request.auth.uid);
+   return signedIn() && exists(p) && get(p).data.enabled == true
+    && exists(/databases/$(database)/documents/weddings/$(s)/invites/$(get(p).data.token))
+    && get(/databases/$(database)/documents/weddings/$(s)/invites/$(get(p).data.token)).data.enabled == true
+    && get(/databases/$(database)/documents/weddings/$(s)/invites/$(get(p).data.token)).data.claimedBy == request.auth.uid
+    ? get(p).data.role : '';
+  }
+  function hasRole(s, names) { return isOwner(s) || (signedIn() && roleName(s) in names); }
+  function guestListReader(s) { return hasRole(s, ['bridesmaid','mother','planner']); }
+  function gateStaff(s) { return hasRole(s, ['bridesmaid','planner']); }
+  function collectionStaff(s) { return hasRole(s, ['mother','bridesmaid']); }
+  function validInvite(s,t) {
+   let i = get(/databases/$(database)/documents/weddings/$(s)/invites/$(t)).data;
+   return signedIn() && request.auth.token.email_verified == true
+    && i.email == request.auth.token.email && i.enabled == true && i.expiresAt > request.time
+    && i.claimedBy == '';
+  }
+  match /slugClaims/{s} {
+   allow get: if signedIn();
+   allow list, update, delete: if false;
+   allow create: if signedIn() && request.resource.data.keys().hasOnly(['claimed'])
+    && request.resource.data.claimed == true
+    && getAfter(/databases/$(database)/documents/weddings/$(s)).data.ownerUid == request.auth.uid;
+  }
+  match /weddings/{s} {
+   allow get: if (resource.data.published == true && publicRegistrySafe(resource.data)) || (signedIn() && resource.data.ownerUid == request.auth.uid);
+   allow list: if signedIn() && resource.data.ownerUid == request.auth.uid;
+   allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid
+    && request.resource.data.published == false
+    && !exists(/databases/$(database)/documents/slugClaims/$(s))
+    && getAfter(/databases/$(database)/documents/slugClaims/$(s)).data.claimed == true;
+   allow update: if isOwner(s) && request.resource.data.ownerUid == resource.data.ownerUid
+    && (request.resource.data.published == resource.data.published
+     || (request.resource.data.driveEpoch is string && request.resource.data.driveEpoch.size() >= 32
+      && request.resource.data.driveEpoch.size() <= 64
+      && (!('driveEpoch' in resource.data) || request.resource.data.driveEpoch != resource.data.driveEpoch)));
+   allow delete: if isOwner(s);
+   // Helpers use a sanitized projection, never the bank/registry-bearing wedding document.
+   match /staffInfo/{id} {
+    allow read: if guestListReader(s);
+    allow write: if isOwner(s) && request.resource.data.keys().hasOnly(['names','ceremonies','weddingDate','published']);
+   }
+   match /invites/{t} {
+    allow get: if isOwner(s) || (signedIn() && resource.data.email == request.auth.token.email);
+    allow list: if isOwner(s);
+    allow create: if isOwner(s) && t.size() >= 32
+     && request.resource.data.keys().hasOnly(['email','role','enabled','expiresAt','claimedBy'])
+     && request.resource.data.email is string && request.resource.data.email.size() <= 254
+     && request.resource.data.role in ['mother','bridesmaid','planner']
+     && request.resource.data.enabled == true && request.resource.data.claimedBy == ''
+     && request.resource.data.expiresAt > request.time;
+    allow update: if (isOwner(s) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['enabled']))
+     || (validInvite(s,t) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimedBy'])
+      && request.resource.data.claimedBy == request.auth.uid
+      && getAfter(/databases/$(database)/documents/weddings/$(s)/roles/$(request.auth.uid)).data.token == t);
+    allow delete: if isOwner(s);
+   }
+   match /roles/{uid} {
+    allow get: if isOwner(s) || (signedIn() && uid == request.auth.uid);
+    allow list: if isOwner(s);
+    allow create, update: if signedIn() && uid == request.auth.uid
+     && request.resource.data.keys().hasOnly(['token','role','enabled'])
+     && validInvite(s, request.resource.data.token)
+     && request.resource.data.role == get(/databases/$(database)/documents/weddings/$(s)/invites/$(request.resource.data.token)).data.role
+     && request.resource.data.enabled == true
+     && getAfter(/databases/$(database)/documents/weddings/$(s)/invites/$(request.resource.data.token)).data.claimedBy == uid
+     || (isOwner(s) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['enabled']));
+    allow delete: if isOwner(s);
+   }
+   match /guests/{id} {
+    allow read: if guestListReader(s);
+    allow write: if isOwner(s);
+   }
+   match /codes/{code} {
+    allow get: if published(s) || guestListReader(s);
+    allow list: if false;
+    allow write: if isOwner(s);
+   }
+   match /gatePasses/{code} {
+    allow read: if gateStaff(s);
+    allow create, update: if isOwner(s)
+     && request.resource.data.keys().hasOnly(['guestId','name','seats','ceremonies'])
+     && request.resource.data.seats is int && request.resource.data.seats >= 1 && request.resource.data.seats <= 20
+     && request.resource.data.ceremonies is list && request.resource.data.ceremonies.size() <= 8
+     && getAfter(/databases/$(database)/documents/weddings/$(s)/guests/$(request.resource.data.guestId)).data.code == code
+     && getAfter(/databases/$(database)/documents/weddings/$(s)/guests/$(request.resource.data.guestId)).data.seats == request.resource.data.seats;
+    allow delete: if isOwner(s);
+   }
+   match /checkins/{id} {
+    allow read: if guestListReader(s);
+    allow create: if gateStaff(s)
+     && request.resource.data.keys().hasOnly(['code','ceremony','admitted','staffUid','checkedAt'])
+     && id == request.resource.data.ceremony + '_' + request.resource.data.code
+     && request.resource.data.staffUid == request.auth.uid && request.resource.data.checkedAt == request.time
+     && request.resource.data.admitted is int && request.resource.data.admitted > 0
+     && exists(/databases/$(database)/documents/weddings/$(s)/gatePasses/$(request.resource.data.code))
+     && request.resource.data.ceremony in get(/databases/$(database)/documents/weddings/$(s)/gatePasses/$(request.resource.data.code)).data.ceremonies
+     && request.resource.data.admitted <= get(/databases/$(database)/documents/weddings/$(s)/gatePasses/$(request.resource.data.code)).data.seats
+     && exists(/databases/$(database)/documents/weddings/$(s)/codes/$(request.resource.data.code));
+    allow update, delete: if false;
+   }
+   match /requests/{id} {
+    allow create: if published(s) && wedding(s).acceptingRequests == true
+     && request.resource.data.keys().hasOnly(['name','phone','seats','side','note','createdAt','seating'])
+     && request.resource.data.name is string && request.resource.data.name.size() > 1 && request.resource.data.name.size() <= 120
+     && request.resource.data.phone is string && request.resource.data.phone.size() <= 20
+     && request.resource.data.seats is int && request.resource.data.seats > 0 && request.resource.data.seats <= 6
+     && request.resource.data.side in ['Bride','Groom','Both']
+     && request.resource.data.note is string && request.resource.data.note.size() <= 300
+     && request.resource.data.createdAt == request.time
+     && request.resource.data.seating is map
+     && request.resource.data.seating.keys().hasOnly(['printName','group','partyRole','companions','seatingNote'])
+     && request.resource.data.seating.printName is string && request.resource.data.seating.printName.size() <= 100
+     && request.resource.data.seating.group is string && request.resource.data.seating.group.size() <= 80
+     && request.resource.data.seating.partyRole is string && request.resource.data.seating.partyRole.size() <= 80
+     && request.resource.data.seating.companions is list && request.resource.data.seating.companions.size() == request.resource.data.seats - 1
+     && request.resource.data.seating.seatingNote is string && request.resource.data.seating.seatingNote.size() <= 300;
+    allow read, update, delete: if isOwner(s);
+   }
+   match /rsvps/{code} {
+    allow create, update: if published(s)
+     && exists(/databases/$(database)/documents/weddings/$(s)/codes/$(code))
+     && request.resource.data.keys().hasOnly(['code','responses','note','submittedAt'])
+     && request.resource.data.code == code && code.size() == 6
+     && request.resource.data.responses is map && request.resource.data.responses.size() <= 8
+     && request.resource.data.note is string && request.resource.data.note.size() <= 500
+     && request.resource.data.submittedAt == request.time;
+    allow read, delete: if isOwner(s);
+   }
+   match /gifts/{id} {
+    allow read, update, delete: if isOwner(s);
+    allow create: if published(s)
+     && request.resource.data.keys().hasOnly(['giver','code','amount','item','receiptPath','createdAt'])
+     && request.resource.data.amount is number && request.resource.data.amount > 0 && request.resource.data.amount < 100000000
+     && request.resource.data.giver is string && request.resource.data.giver.size() > 0 && request.resource.data.giver.size() <= 120
+     && request.resource.data.code is string && request.resource.data.code.size() <= 6
+     && request.resource.data.item is string && request.resource.data.item.size() <= 120
+     && request.resource.data.receiptPath == '' && request.resource.data.createdAt == request.time;
+   }
+   match /registry/{id} { allow read, write: if isOwner(s); }
+   match /vendors/{id} { allow read, write: if isOwner(s); }
+   match /vendorContacts/{id} {
+    allow read: if hasRole(s,['planner']);
+    allow create, update: if isOwner(s) && request.resource.data.keys().hasOnly(['name','phone','notes']);
+    allow delete: if isOwner(s);
+   }
+   match /asoebiItems/{id} {
+    allow read: if published(s) || collectionStaff(s);
+    allow write: if isOwner(s) && request.resource.data.keys().hasOnly(['name']);
+   }
+   match /asoebiClaims/{id} {
+    allow create: if published(s)
+     && request.resource.data.keys().hasOnly(['code','itemId','size','quantity','amount','createdAt'])
+     && exists(/databases/$(database)/documents/weddings/$(s)/codes/$(request.resource.data.code))
+     && exists(/databases/$(database)/documents/weddings/$(s)/asoebiItems/$(request.resource.data.itemId))
+     && request.resource.data.size is string && request.resource.data.size.size() <= 60
+     && request.resource.data.quantity is int && request.resource.data.quantity > 0 && request.resource.data.quantity <= 20
+     && request.resource.data.amount is number && request.resource.data.amount > 0 && request.resource.data.amount < 100000000
+     && request.resource.data.createdAt == request.time;
+    allow read, update, delete: if isOwner(s);
+   }
+   match /asoebi/{id} { allow read, write: if isOwner(s); }
+   match /asoebiCollections/{id} {
+    allow read: if collectionStaff(s);
+    allow create: if isOwner(s) && request.resource.data.keys().hasOnly(['code','name','itemId','itemName','size','quantity','ready','collected','collectedAt']);
+    allow delete: if isOwner(s);
+    allow update: if (isOwner(s) && request.resource.data.keys().hasOnly(['code','name','itemId','itemName','size','quantity','ready','collected','collectedAt'])) || (collectionStaff(s) && resource.data.ready == true
+     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['collected','collectedAt'])
+     && request.resource.data.collected == true && request.resource.data.collectedAt == request.time);
+   }
+   match /asoebiPayments/{id} { allow read, write: if isOwner(s); }
+   match /thankYou/{code} {
+    allow read: if hasRole(s,['mother','bridesmaid']);
+    allow create: if isOwner(s) && request.resource.data.keys().hasOnly(['name','phone','source','message','sent','sentAt']);
+    allow delete: if isOwner(s);
+    allow update: if (isOwner(s) && request.resource.data.keys().hasOnly(['name','phone','source','message','sent','sentAt'])) || (hasRole(s,['mother','bridesmaid'])
+     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['message','sent','sentAt'])
+     && request.resource.data.message is string && request.resource.data.message.size() <= 1500
+     && request.resource.data.sent is bool
+     && (!request.resource.data.sent || request.resource.data.sentAt == request.time));
+   }
+   match /photos/{id} {
+    allow read: if isOwner(s) || (published(s) && resource.data.approved == true);
+    // Uploads are disabled in this free, no-Storage setup.
+    allow write: if isOwner(s);
+   }
+  }
+    // Compatibility dropbox for old cached signup pages; never publicly readable.
     match /signups/{id} {
-      allow create: if request.resource.data.keys().hasOnly(
-                         ["names", "phone", "weddingDate", "city",
-                          "guestBand", "source", "createdAt"])
-                    && request.resource.data.names is string
-                    && request.resource.data.names.size() < 120
-                    && request.resource.data.phone is string
-                    && request.resource.data.phone.size() < 20;
+      allow create: if request.resource.data.keys().hasOnly(['names','phone','weddingDate','city','guestBand','source','createdAt'])
+        && request.resource.data.names is string && request.resource.data.names.size() < 120
+        && request.resource.data.phone is string && request.resource.data.phone.size() < 20;
       allow read, update, delete: if false;
     }
-
-    // Anything not matched above is denied.
-    match /{document=**} {
-      allow read, write: if false;
+    // Paid stationery is separate from wedding gifts. Configure this document in the Firebase console.
+    function stationeryOperator() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/stationeryConfig/main)
+        && request.auth.uid in get(/databases/$(database)/documents/stationeryConfig/main).data.operatorUids;
     }
-  }
+    match /stationeryConfig/{id} {
+      allow read: if id == 'main';
+      allow write: if false; // Operator identity and payout details are console-managed, never client-writable.
+    }
+    match /stationeryOrders/{id} {
+      allow read: if request.auth != null && (resource.data.ownerUid == request.auth.uid || stationeryOperator());
+      allow create: if request.auth != null
+        && get(/databases/$(database)/documents/stationeryConfig/main).data.enabled == true
+        && request.resource.data.keys().hasOnly(['ownerUid','weddingSlug','package','price','design','sizes','notes','wedding','seating','receipt','status','createdAt','confirmedDetails'])
+        && request.resource.data.ownerUid == request.auth.uid
+        && isOwner(request.resource.data.weddingSlug)
+        && ((request.resource.data.package == 'essential' && request.resource.data.price == 20000)
+          || (request.resource.data.package == 'personalised' && request.resource.data.price == 50000))
+        && request.resource.data.design in ['Garden whispers','Blush romance','Champagne elegance']
+        && request.resource.data.sizes is string && request.resource.data.sizes.size() <= 200
+        && request.resource.data.notes is string && request.resource.data.notes.size() <= 500
+        && request.resource.data.wedding is map
+        && request.resource.data.seating is list && request.resource.data.seating.size() <= 200
+        && (request.resource.data.package != 'essential' || request.resource.data.seating.size() == 0)
+        && request.resource.data.receipt is map
+        && request.resource.data.receipt.keys().hasOnly(['name','type','data'])
+        && request.resource.data.receipt.name is string && request.resource.data.receipt.name.size() <= 120
+        && request.resource.data.receipt.type in ['image/jpeg','image/png','application/pdf']
+        && request.resource.data.receipt.data is string && request.resource.data.receipt.data.size() <= 280000
+        && request.resource.data.receipt.data.matches('data:(image/jpeg|image/png|application/pdf);base64,[A-Za-z0-9+/=]+')
+        && request.resource.data.status == 'awaiting_payment_confirmation'
+        && request.resource.data.confirmedDetails == true
+        && request.resource.data.createdAt == request.time;
+      allow update: if request.auth != null && (
+        // Couples approve only the specific proof supplied to their own order.
+        (resource.data.ownerUid == request.auth.uid
+          && resource.data.status == 'proof_ready'
+          && request.resource.data.status == 'proof_approved'
+          && request.resource.data.approvedProofUrl == resource.data.proofUrl
+          && request.resource.data.approvedAt == request.time
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','approvedProofUrl','approvedAt']))
+        || (stationeryOperator()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','proofUrl','deliveryUrl','updatedAt'])
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.proofUrl is string && request.resource.data.proofUrl.size() <= 2000
+          && request.resource.data.deliveryUrl is string && request.resource.data.deliveryUrl.size() <= 2000
+          && (
+            (resource.data.status == 'awaiting_payment_confirmation' && request.resource.data.status in ['awaiting_payment_confirmation','payment_confirmed'])
+            || (resource.data.status == 'payment_confirmed' && request.resource.data.status in ['payment_confirmed','proof_ready'])
+            || (resource.data.status == 'proof_ready' && request.resource.data.status == 'proof_ready')
+            || (resource.data.status == 'proof_approved' && request.resource.data.status in ['proof_approved','delivered'] && request.resource.data.proofUrl == resource.data.approvedProofUrl)
+            || (resource.data.status == 'delivered' && request.resource.data.status == 'delivered' && request.resource.data.proofUrl == resource.data.approvedProofUrl)
+          )
+          && (request.resource.data.status != 'proof_ready' || request.resource.data.proofUrl.matches('https://[^ ]+'))
+          && (request.resource.data.status != 'delivered' || request.resource.data.deliveryUrl.matches('https://[^ ]+'))
+        )
+      );
+      allow delete: if false;
+    }
+
+    // Optional Drive backend is Admin SDK only. Never expose tokens, capabilities, file IDs or usage documents.
+    match /driveConnections/{document=**} { allow read, write: if false; }
+    match /driveStates/{id} { allow read, write: if false; }
+    match /driveCaps/{id} { allow read, write: if false; }
+    match /driveSessions/{id} { allow read, write: if false; }
+    match /driveBudgets/{id} { allow read, write: if false; }
+    match /driveRates/{id} { allow read, write: if false; }
+    match /driveUploadRates/{id} { allow read, write: if false; }
+    match /{document=**} { allow read, write: if false; }
+ }
 }
