@@ -1,75 +1,91 @@
-# Vows.ng source: Firebase Spark + free-tier Drive backend
+# Vows — complete website source and localhost role-test kit
 
-**Downloadable source, not a deployed app. No billing, account connection, package installation or deployment was performed.** This is the replacement for the earlier Blaze-dependent `vows-drive-release.zip`. That old ZIP is untouched and superseded for this free-tier requirement; do not deploy it.
+This is the **public Vows wedding website**, not the unrelated Local Marketing Studio. It contains the complete current free-backend release, original embedded artwork, Firebase rules and optional Cloudflare Worker source, plus a separate emulator-only test harness. No online accounts, deployment, billing, real payments, Google connections or messages have been created or sent.
 
-## Budget decision
+## Important before testing
 
-The existing website stays on Firebase **Spark** (Hosting/Auth/Firestore). Optional photos now target **Cloudflare Workers Free + D1 Free**, with originals in the couple's existing private Google Drive. There are **no Firebase Functions, service-account keys, Secret Manager, R2, paid Images, paid Durable Objects, Firebase Storage uploads or automatic paid fallback**. Remain on Free/Spark, leave Google Cloud billing unlinked, and stop if any setup step asks for billing.
+- **One couple owner account is implemented. Separate partner/co-owner access is NOT IMPLEMENTED.** Alex's distinct demo account signs into Auth but must be denied private access to Maya's wedding. Do not share Maya's password or treat a helper role as co-ownership.
+- **Guests do not have email/password accounts.** They open the published wedding and enter their exact six-character invitation code to RSVP, find their table and display the genuine gate QR.
+- Mother, chief bridesmaid and planner use separate Auth accounts with verified-email, UID-bound invitations. The operator uses a separately authorized stationery workspace.
+- All demo identities/passwords/data are **fictional and localhost-only**. Never deploy the generated demo directory or reuse these passwords online.
+- Firebase rules compilation and emulator end-to-end execution were **NOT RUN in the preparation environment**: Firebase CLI, Java and SDK dependencies were absent. The supplied emulator suite must pass on your computer before acceptance. The 26 existing feature checks, 48 existing Worker checks and 11 new harness checks passed; these are not production certification.
 
-Free does not mean unlimited or production-proven. Workers currently allow 100,000 requests/day but only **10 ms CPU/invocation**, 128 MB memory and 50 subrequests. D1 Free's 100,000 rows written/day and 500 MB per-database limit may bind well before app upload allowances. Firebase Spark's shared document-read quota can affect **both photos and core features**. Current Drive API has no additional cost, but Google documents planned late-2026 policy changes; storage and future policy still apply. Official links and exact caveats are in **[free-backend-setup.md](free-backend-setup.md)**.
+## Prerequisites
 
-**Status: source tested locally; Free-runtime production readiness is NOT established.** No real Worker/D1/OAuth/Picker/mobile tests or 10 ms CPU profiling were run. Do not enable paid services to pass acceptance. If the Free target fails staging capacity/CPU tests, keep photos off. A missing/off photo backend does not itself disable the existing core.
+Use **Node.js 22.13+ (22 LTS recommended)**, npm, and **Java 21 JDK** on PATH. Check `node --version`, `npm --version`, and `java -version`. The Firebase CLI is pinned as a dev dependency; no global CLI or Firebase login is required for the demo. You need internet for npm/first emulator downloads and for the website's Firebase SDK, QR library, fonts and Google-hosted scripts. This is not an offline bundle.
 
-## Complete release, not a patch
+Windows: extract the ZIP to a normal writable folder first. Install the official Node LTS and Java 21 JDK installers, reopen PowerShell, then `cd` into the extracted `vows-github-test-kit` folder. If PowerShell blocks `npm.ps1`, use **`npm.cmd`** for every npm command below. No Bash environment variables, admin shell, service account or billing account are required. Do not keep a production Firebase project/credential environment active in this shell.
 
-```text
-vows-free-drive-release/
-  README.md, free-backend-setup.md, drive-setup.md
-  feature-setup.md, stationery-setup.md, validation-results.txt
-  firebase.json, firebase.core.json  # both no-Functions Hosting/rules configs
-  firestore.rules, firestore.indexes.json, storage.rules
-  vows-app.html                     # complete downloadable owner editor
-  vows-guest.html                   # complete downloadable guest page
-  stationery-generator.html        # preserved printable generator
-  owner-drive.js, guest-drive.js     # readable snippets already embedded in HTML
-  feature-tests.mjs                 # preserved original 26 baseline checks
-  worker/
-    index.mjs, service.mjs, adapters.mjs, store.mjs
-    wrangler.toml                   # obvious placeholders; no secrets
-    migrations/0001_private.sql
-    test/*.test.mjs                 # Node mocks + actual native SQLite adapter tests
-  public/                           # the ONLY Firebase Hosting public directory
-    index.html                      # preserved illustrated landing page
-    app.html                        # identical full owner replacement
-    wedding.html                    # identical full guest replacement
-    stationery-generator.html
-    privacy.html, terms.html        # truthful operator-review drafts, not legal advice
-```
+## Six commands (two terminals)
 
-Never publish the Worker source, rules, configs, tests, order briefs, receipts, keys or backups in `public/`. All original embedded artwork remains. No employer branding, messages, emails or new paid wedding app are introduced. Replace only your own project's Firebase/web/API/Worker placeholders; no real credentials ship in this package.
+Stop at any error. Do not substitute a real project to make an emulator error disappear.
 
-## What remains unchanged
-
-The free website's original six-feature workflows, helper role boundaries, invitation/multi-ceremony RSVP, owner-side request merge, private financial records, gate check-in, seating lookup, thank-you drafts, aso-ebi tracking and stationery flow remain. Bank verification and WhatsApp sending stay manual. **Essential stationery: ₦20,000. Personalised: ₦50,000, up to 200 named people.** Printing, physical delivery and custom-size quotations remain separate. Follow `feature-setup.md` for legacy privacy migration and helper rules; publication still rotates `driveEpoch`, and unsafe legacy public registry data blocks public photos.
-
-## Photo architecture and explicit limits
-
-- The owner signs into Firebase. The backend uses the caller's ID token with live Firebase Auth REST lookup/project/revocation checks and Firestore ownership reads, not a service account. Helpers cannot connect/pick/change photo settings.
-- OAuth authorization-code/offline consent uses PKCE, one-use state and a top-level secure Worker cookie. Final account linking additionally requires the **original tab's sessionStorage verifier, a random one-use completion fragment and fresh same-owner Firebase authentication**. A forwarded handoff cannot link a victim's Google account. Callback by itself links nothing.
-- Only `drive.file` is requested. Picker receives an owner-only, short-lived in-memory access token; refresh tokens never enter frontend/Firestore. All private D1 records, including OAuth codes/state, capabilities, upload URIs, metadata and quotas, are AES-GCM encrypted using Worker secrets and row-context binding. Privileged administrators can access data and keys; this is not end-to-end encryption.
-- Picker selects one accessible owner-only private My Drive folder. Sharing/shared drives are rejected; the app does not change permissions. Only originals created through this wedding and current connection enter the gallery, never existing folder contents. Reconnect/folder change starts a new gallery binding and deletes no earlier files.
-- Uploads, viewing and original downloads are independent **default-off** controls; download requires viewing. Viewing means **anyone with the published wedding link**, not invitation-verified people only. Links can be forwarded. Screenshots and saving visible previews cannot be prevented.
-- JPEG/PNG/WEBP/HEIC originals, 16 bytes–20 MiB. Type/size/magic checks only, **no server image decoding or malware/content scan**. SVG/HTML/video are rejected. No automatic resizing, animation rejection or decompression/pixel-count guarantee is claimed.
-- Guests upload one file at a time in bounded **1 MiB chunks** (final chunk may be smaller) via a server-only Google resumable session. No Google token, Drive file ID, original URL or resumable URI reaches guests. Persisted chunk offsets, per-chunk SHA-256, CAS leases and upstream status reconciliation support same-tab retries without duplicate originals. The whole 20 MiB original is never buffered/hashed in the Worker. Reload loses the selected file/tab state; upload sessions expire after fifteen minutes, capabilities after two hours.
-- D1 atomic SQL batches guard read versions with a CHECK constraint and roll back/retry conflicts. Budgets/leases are durable, not isolate-memory counters. Per-route live wedding/owner/connection/settings/publication epochs apply; final completion/media checks run after upstream work. There is no atomic transaction across Google, Firestore and D1. In-flight provider races may leave a private orphan or finish a stream already started.
-- View-only uses authenticated, strictly allowlisted Google-generated thumbnails, no redirects, valid JPEG/PNG/WEBP magic and a **128 KiB byte cap**, private/no-store/nosniff. **No original fallback.** Google controls thumbnail generation; the source promises neither fixed dimensions nor metadata stripping. Missing/unsafe thumbnails fail closed. **HEIC previews are unavailable**, even if Google provides a thumbnail.
-- Original download is enabled-only, attachment/nosniff, streamed with exact metadata length and bounded stream counts. Current Google file app-properties, folder, type/size, version and checksum must match the original recorded metadata. Whole-original bytes are not rehashed at delivery. Changed/moved/cross-wedding files fail closed.
-- App reservation allowance: **2,000 originals / 5 GiB per wedding lifetime**, **20 / 160 MiB per capability**; network and daily project ceilings also apply. These are application ceilings, **not guaranteed Free capacity**. Failed/abandoned reservations are not refunded. See setup for read/request ceilings and realistic quota arithmetic. A realistic wedding needs measured staging acceptance, not a promise based on 100,000 Worker requests.
-- Disconnect/unpublish/settings/permission changes block subsequent requests, not already-delivered/saved bytes or an active stream. Disconnect removes the usable local refresh token and attempts Google grant revocation. It does not delete Drive originals, backups or downloaded copies. A bounded D1 cleanup cron is supplied; no paid Firestore TTL is used. Lifetime metadata/budgets and orphan originals need reviewed manual deletion.
-
-## Validation and setup
-
-Use a modern Node with built-in `node:sqlite` for the native SQL tests (no npm packages). From the release root:
+**Terminal A**, in the extracted repository:
 
 ```sh
-node feature-tests.mjs
-node --test worker/test/*.test.mjs
-node --check worker/index.mjs
-node --check worker/service.mjs
-node --check worker/adapters.mjs
-node --check worker/store.mjs
+npm install
+npm run demo:prepare
+npm run demo:start
 ```
 
-See **`validation-results.txt`** for executed checks and exact gaps. Source tests use mocked Google/Firebase/HTTP/browser APIs plus real local SQLite running the actual schema and D1-store SQL. They do not emulate Cloudflare's complete runtime, a real D1 deployment, Firebase rules or Google's image codecs. The documented login-CSRF fix has a regression check and independent read-only security review; neither is a security certification.
+Keep Terminal A running. It explicitly starts only Auth, Firestore and Hosting under `demo-vows-test`; every listener, including the emulator UI, binds to `127.0.0.1`. No Storage/Functions backend or billing is involved. Do not expose the ports through tunnels, port forwarding or a public network. The demo has no authentication on its local admin emulator ports.
 
-Start with **[free-backend-setup.md](free-backend-setup.md)** for exact own-account Free setup, D1 migration, Worker secrets/config, Google OAuth/Picker/API restrictions, Firebase frontend URLs, no-billing guardrails, quota caveats and mandatory live/CPU/mobile acceptance. `drive-setup.md` is the short entry point to that same active architecture. There is no silent old-backend fallback.
+**Terminal B**, in the same folder, after A reports all emulators ready:
+
+```sh
+npm run demo:seed -- --confirm-demo
+npm test
+npm run test:rules
+```
+
+Then open **http://127.0.0.1:5000/test-hub.html**. Use the copy buttons and actual app links; sign out or use separate browser profiles between accounts. The hub never signs you in, changes roles, bypasses rules or simulates permissions. It is only a directory of local fixture credentials and real page links.
+
+`npm run test:rules` exercises actual Firestore Rules with the emulator (including one actual email/password Auth metadata test). It resets known fixture documents before each case, so **do not run it during manual journeys**. Then reseed once to restore the known baseline. A failure is an acceptance blocker; record its output and do not switch to permissive rules.
+
+Alternatively, after stopping Terminal A with Ctrl+C, `npm run test:rules:exec` starts Auth/Firestore, seeds the same known fixtures, runs the rules suite, then stops. It does not start Hosting. Do not run both emulator commands at once; the same ports will conflict.
+
+## Fixture data and logins
+
+Read **[ROLES-AND-LOGINS.md](ROLES-AND-LOGINS.md)** for every account, URL, guest code, seat allowance and QR payload. Fixtures contain Maya & Alex's published wedding, their draft wedding, a different owner's private wedding, 12 parties / 24 named people per wedding, ceremony-restricted gate passes, private synthetic gift/payment records, amount-free collection/thank-you projections and synthetic stationery orders. Phone and payout fields are blank. No QR decoder/camera success is invented.
+
+For a fresh local reset, stop manual testing and run `npm run demo:seed -- --confirm-demo` again. It updates only the ten known emulator UIDs and deterministic fixture document IDs, resets known codes' RSVP/check-ins and fresh-invitee memberships. It never lists/wipes all users or all documents. **Random orders, guests, invitations and requests created during your manual tests remain.** To discard everything, stop the emulators and restart without importing a snapshot; this demo does not export persistence. Closing the processes loses emulator-only data. Never export local demo accounts into a live project.
+
+Default stationery checkout stays disabled. The seed includes synthetic `payment_confirmed` and pending orders so the real operator/generator paths can be tested without banking. Optional `npm run demo:seed -- --confirm-demo --enable-stationery` changes only the emulator configuration's enabled flag; payout fields remain empty, so the browser checkout **still stays disabled**. It is not a simulated payment gateway. Do not put actual bank details or receipts in this test kit.
+
+## Test scope and acceptance
+
+- **[TEST-PLAN.md](TEST-PLAN.md)**: role allow/deny matrix, browser journeys, direct Rules checks, concurrent entry and print/device acceptance.
+- **[KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.md)**: partner gap, bearer-code privacy limits, pending-request processing, current authorization limits and external integrations not verified.
+- **[VALIDATION.md](VALIDATION.md)**: exactly what ran and what did not.
+- **[RELEASE-README.md](RELEASE-README.md)** plus retained feature/stationery/free-backend guides: original website source/setup information, not instructions to deploy the emulator.
+
+## Production source versus demo source
+
+```text
+public/                     Complete original website, unchanged Firebase placeholders
+vows-app.html               Same complete editor as public/app.html
+vows-guest.html             Same complete guest page as public/wedding.html
+stationery-generator.html   Same native print generator as hosted copy
+firestore.rules             Original enforced rules, not broadened for fixtures
+worker/                     Optional Free Worker/D1 source and 48 original tests
+feature-tests.mjs           26 original feature contract/unit tests
+firebase.json               Production public/ Hosting/rules configuration
+firebase.core.json          Original core configuration
+firebase.demo.json          LOCAL ONLY: .demo-public, loopback emulators, original rules
+.firebaserc                 demo alias only; no default/real project
+package.json                Pinned test dependencies; private package, not published
+scripts/                    Safe local preparation and emulator-only Admin seeder
+demo/                       Fictional fixtures, guard and local hub assets
+test/                       New harness contracts and real emulator Rules suite
+.demo-public/               GENERATED/ignored; never deploy or commit
+```
+
+`demo:prepare` copies the six complete production pages into an ignored `.demo-public`, replaces only the two Firebase config blocks, adds strict hostname/port/project guards **before initialization** and attaches Auth/Firestore emulators before any operations. It refuses to overwrite an unmarked pre-existing demo directory and does not modify `public/` or rules. The underlying seeder and Rules suite require both `FIREBASE_AUTH_EMULATOR_HOST` and `FIRESTORE_EMULATOR_HOST`; they refuse missing values, remote endpoints or unexpected ports. For cross-platform convenience, the explicit npm local launcher supplies only missing values as `127.0.0.1:9099` and `127.0.0.1:8080`; it never overwrites an existing value. A real project ID or Google credentials/config environment also causes an abort before SDK initialization. Preflight checks the local Emulator Hub's advertised services/ports, JSON service responses and any existing Firestore document's demo-project namespace. Emulators support multiple namespaces; the kit always selects only demo-vows-test, never discovers a real project. The Admin SDK uses an explicit emulator-only credential and never discovers real credentials.
+
+### GitHub handoff
+
+Create an empty repository you control and add this extracted folder's contents. `.gitignore` excludes dependencies, emulator output, local generated pages, logs and credentials. No lockfile is fabricated: `npm install` creates a real `package-lock.json`; review and commit that locally generated lockfile if you want reproducible installs. Test the pinned dependencies in your environment and review upstream updates before real deployment. This ZIP is not a GitHub repository URL and no repository was created for you. No license/ownership transfer is implied.
+
+### Later staging — not performed
+
+Complete local acceptance first. Back up your own project, select a **new staging project you own**, restore your own web Firebase configuration in the original production source, keep both downloadable/hosted copies in sync, and follow the retained original release guides using free Spark/Free limits. Use only `firebase.json`/`firebase.core.json` and **explicit `--project YOUR_OWN_STAGING_ID`** for any later controlled deployment. Never deploy `firebase.demo.json`, `.demo-public`, fixtures, keys or test passwords. Do not use the seeder against staging: it intentionally refuses real project IDs. Manually create distinct harmless staging users/records after reviewing privacy, quotas and rules; do not turn on billing or permissive rules to bypass a failed check. Optional Worker/Google photos remain off until their separate real configuration and integration tests pass.

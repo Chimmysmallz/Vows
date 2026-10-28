@@ -1,23 +1,22 @@
-node_modules/
+functions/node_modules/
+functions/.env*
+.env*
 .firebase/
-*.log
-.env
-.DS_Store
+*-debug.log
+*.private.json
+service-account*.json
 
-
-# Local credentials and secrets
-.env
-.env.*
 .dev.vars
-.dev.vars.*
-!.env.example
-!.dev.vars.example
-**/service-account*.json
-**/*firebase-adminsdk*.json
-*.pem
-*.key
-
-# Local development state
-node_modules/
+.env*
 .wrangler/
+node_modules/
+
+# Local-only emulator output and tool caches
+.demo-public/
+node_modules/
 .firebase/
+.emulator-data/
+*-debug.log*
+*.log
+coverage/
+.DS_Store

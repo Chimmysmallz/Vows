@@ -1,0 +1,22 @@
+{
+  "name": "vows-github-test-kit",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Current Vows website plus localhost-only Firebase Auth/Firestore role-test fixtures",
+  "engines": { "node": ">=22.13.0" },
+  "scripts": {
+    "demo:prepare": "node scripts/prepare-demo.mjs",
+    "demo:start": "firebase emulators:start --config firebase.demo.json --project demo-vows-test --only auth,firestore,hosting",
+    "demo:seed": "node scripts/local-demo.mjs seed",
+    "test": "node feature-tests.mjs && node --test worker/test/*.test.mjs test/contracts.test.mjs",
+    "test:rules": "node scripts/local-demo.mjs rules",
+    "test:rules:exec": "firebase emulators:exec --config firebase.demo.json --project demo-vows-test --only auth,firestore \"npm run demo:seed -- --confirm-demo && npm run test:rules\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "4.0.1",
+    "firebase": "11.0.2",
+    "firebase-admin": "13.0.2",
+    "firebase-tools": "14.0.0"
+  }
+}
